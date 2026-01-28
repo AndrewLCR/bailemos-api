@@ -14,7 +14,16 @@ const app = express();
 // MongoDB connection
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    // Support both MONGO_URI (used locally) and MONGODB_URI (often used in hosting envs like Vercel/Docker)
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+
+    if (!mongoUri) {
+      throw new Error(
+        "Missing MongoDB connection string. Set MONGO_URI or MONGODB_URI in your environment.",
+      );
+    }
+
+    await mongoose.connect(mongoUri);
     console.log("MongoDB Connected");
   } catch (err) {
     console.error("MongoDB connection error:", err.message);
