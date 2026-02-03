@@ -228,6 +228,9 @@ sketch
 # Built Visual Studio Code Extensions
 *.vsix
 
+# Uploaded enrollment vouchers
+uploads/
+
 ### VisualStudioCode Patch ###
 # Ignore all local history of files
 .history

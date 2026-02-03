@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -19,7 +20,7 @@ const connectDB = async () => {
 
     if (!mongoUri) {
       throw new Error(
-        "Missing MongoDB connection string. Set MONGO_URI or MONGODB_URI in your environment.",
+        "Missing MongoDB connection string. Set MONGO_URI or MONGODB_URI in your environment."
       );
     }
 
@@ -31,14 +32,15 @@ const connectDB = async () => {
   }
 };
 
-// Middlewares
-app.use(express.json()); // Body parser
+// Middlewares (limit raised for base64 avatars on PATCH /api/auth/profile)
+app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev")); // Logging
 
 // CORS
 const allowedOrigins = [
   "http://localhost:5173",
   "https://bailemos-dashboard.vercel.app",
+  "http://localhost:8081",
 ];
 
 app.use(
@@ -50,22 +52,24 @@ app.use(
       }
       return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  }),
+  })
 );
 
 // Explicitly handle CORS preflight for all routes
 app.options("*", cors());
 
-// Rate limiting
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-  }),
-);
+// Rate limiting (solo en producción)
+if (process.env.NODE_ENV === "production") {
+  app.use(
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 100,
+    })
+  );
+}
 
 // Security HTTP
 app.use(helmet());
@@ -77,6 +81,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Serve uploaded enrollment vouchers (e.g. /uploads/enrollments/:id.png)
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
