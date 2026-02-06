@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const Joi = require("joi");
-const Class = require("../models/Class");
 const Booking = require("../models/Booking");
 const Enrollment = require("../models/Enrollment");
 const { User, Academy } = require("../models/User");
@@ -54,23 +53,20 @@ exports.getAcademyById = async (req, res) => {
   }
 };
 
-// @desc    Create a new class
+// @desc    Create a new class (stored in academy user document: users/academyId/classes)
 // @route   POST /api/academy/classes
 // @access  Private (Academy)
 exports.createClass = async (req, res) => {
   try {
     const { name, description, level, schedule, price } = req.body;
 
-    const newClass = new Class({
-      name,
-      description,
-      level,
-      schedule,
-      price,
-      academy: req.user._id,
-    });
-
-    const savedClass = await newClass.save();
+    const academy = await Academy.findById(req.user._id);
+    if (!academy) {
+      return res.status(404).json({ message: "Academy not found" });
+    }
+    academy.classes.push({ name, description, level, schedule, price });
+    await academy.save();
+    const savedClass = academy.classes[academy.classes.length - 1];
     res.status(201).json(savedClass);
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
@@ -82,42 +78,54 @@ exports.createClass = async (req, res) => {
 // @access  Public (or semi-private)
 exports.getClasses = async (req, res) => {
   try {
-    const query = {};
+    let academyIds = [];
     if (req.query.academyId) {
-      query.academy = req.query.academyId;
+      academyIds = [req.query.academyId];
     } else if (req.user && req.user.role === "academy") {
-      // If logged in as academy and no ID provided, show their own classes
-      query.academy = req.user._id;
+      academyIds = [req.user._id];
+    } else {
+      const all = await Academy.find().select("_id").lean();
+      academyIds = all.map((a) => a._id);
     }
 
-    // If getting all classes nearby, that would be a different controller or complex query.
-    // Basic list for now.
-    const classes = await Class.find(query).populate("academy", "name address");
-    res.json(classes);
+    const academies = await Academy.find({ _id: { $in: academyIds } })
+      .select("name address classes")
+      .lean();
+    const list = [];
+    for (const academy of academies) {
+      const classes = (academy.classes || []).map((c) => ({
+        ...c,
+        id: c._id,
+        _id: c._id,
+        academy: { name: academy.name, address: academy.address },
+      }));
+      list.push(...classes);
+    }
+    res.json(list);
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
 
-// @desc    Book a class
+// @desc    Book a class (classId = embedded class _id in users/academyId/classes)
 // @route   POST /api/academy/bookings
 // @access  Private (Dancer)
 exports.bookClass = async (req, res) => {
   try {
     const { classId, danceRole } = req.body;
 
-    const classItem = await Class.findById(classId);
-    if (!classItem) {
+    const academy = await Academy.findOne({ "classes._id": classId })
+      .select("_id")
+      .lean();
+    if (!academy) {
       return res.status(404).json({ message: "Class not found" });
     }
 
-    // Check if already booked
     const existingBooking = await Booking.findOne({
       class: classId,
       dancer: req.user._id,
       status: "active",
     });
-
     if (existingBooking) {
       return res.status(400).json({ message: "Already booked this class" });
     }
@@ -125,22 +133,18 @@ exports.bookClass = async (req, res) => {
     const booking = new Booking({
       class: classId,
       dancer: req.user._id,
-      academy: classItem.academy,
-      paymentStatus: "paid", // Simulating payment
+      academy: academy._id,
+      paymentStatus: "paid",
       danceRole:
         danceRole === "leader" || danceRole === "follower"
           ? danceRole
           : "follower",
     });
-
     await booking.save();
 
-    // Add dancer to academy students list if not present
-    await User.findByIdAndUpdate(classItem.academy, {
+    await Academy.findByIdAndUpdate(academy._id, {
       $addToSet: { students: req.user._id },
     });
-
-    // Add booking to dancer
     await User.findByIdAndUpdate(req.user._id, {
       $push: { bookings: booking._id },
     });
@@ -151,17 +155,19 @@ exports.bookClass = async (req, res) => {
   }
 };
 
-// @desc    Get all bookings for a class (dancer name + dance role)
+// @desc    Get all bookings for a class (class in users/academyId/classes)
 // @route   GET /api/academy/classes/:classId/bookings
 // @access  Private (Academy – class must belong to academy)
 exports.getClassBookings = async (req, res) => {
   try {
     const { classId } = req.params;
-    const classItem = await Class.findById(classId).select("academy").lean();
-    if (!classItem) {
+    const academy = await Academy.findOne({ "classes._id": classId })
+      .select("_id")
+      .lean();
+    if (!academy) {
       return res.status(404).json({ message: "Class not found" });
     }
-    if (String(classItem.academy) !== String(req.user._id)) {
+    if (String(academy._id) !== String(req.user._id)) {
       return res
         .status(403)
         .json({ message: "Not authorized to view bookings for this class" });
@@ -187,16 +193,35 @@ exports.getClassBookings = async (req, res) => {
   }
 };
 
-// @desc    Get bookings for a dancer
+// @desc    Get bookings for a dancer (class/academy from users/academyId/classes)
 // @route   GET /api/academy/bookings/my
 // @access  Private (Dancer)
 exports.getMyBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find({ dancer: req.user._id }).populate({
-      path: "class",
-      populate: { path: "academy", select: "name" },
+    const bookings = await Booking.find({ dancer: req.user._id })
+      .populate("dancer", "name")
+      .lean();
+    const academyIds = [...new Set(bookings.map((b) => String(b.academy)))];
+    const academies = await Academy.find({ _id: { $in: academyIds } })
+      .select("name classes")
+      .lean();
+    const academyMap = Object.fromEntries(
+      academies.map((a) => [String(a._id), a])
+    );
+    const list = bookings.map((b) => {
+      const academy = academyMap[String(b.academy)];
+      const classDoc = academy?.classes?.find(
+        (c) => String(c._id) === String(b.class)
+      );
+      return {
+        ...b,
+        class: classDoc
+          ? { ...classDoc, _id: classDoc._id, id: classDoc._id }
+          : null,
+        academy: academy ? { name: academy.name } : null,
+      };
     });
-    res.json(bookings);
+    res.json(list);
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }

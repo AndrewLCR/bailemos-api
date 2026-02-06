@@ -90,12 +90,14 @@ const authRoutes = require("./routes/authRoutes");
 const academyRoutes = require("./routes/academyRoutes");
 const establishmentRoutes = require("./routes/establishmentRoutes");
 const dancerRoutes = require("./routes/dancerRoutes");
+const userRoutes = require("./routes/userRoutes");
 const { protect, authorize } = require("./middleware/authMiddleware");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/academy", academyRoutes);
 app.use("/api/establishment", establishmentRoutes);
 app.use("/api/dancer", dancerRoutes);
+app.use("/api/users", userRoutes);
 
 app.get("/", (req, res) => {
   res.send("Bailemos API is running");

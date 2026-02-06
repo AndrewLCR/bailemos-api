@@ -3,7 +3,6 @@ const mongoose = require("mongoose");
 const bookingSchema = new mongoose.Schema({
   class: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Class",
     required: true,
   },
   dancer: {
