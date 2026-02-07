@@ -227,6 +227,33 @@ exports.getMyBookings = async (req, res) => {
   }
 };
 
+// @desc    Cancel a booked class
+// @route   PATCH /api/academy/bookings/:bookingId
+// @access  Private (Dancer – own booking only)
+exports.cancelBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const booking = await Booking.findOne({
+      _id: bookingId,
+      dancer: req.user._id,
+      status: "active",
+    });
+    if (!booking) {
+      return res.status(404).json({
+        message: "Booking not found or already cancelled",
+      });
+    }
+    booking.status = "cancelled";
+    await booking.save();
+    res.json(booking);
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid booking ID" });
+    }
+    res.status(500).json({ message: "Server Error", error: error.message });
+  }
+};
+
 // @desc    Enroll in academy (submit application + voucher)
 // @route   POST /api/academy/:academyId/enroll
 // @access  Private (Dancer)

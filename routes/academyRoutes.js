@@ -6,6 +6,7 @@ const {
   getClassBookings,
   bookClass,
   getMyBookings,
+  cancelBooking,
   getAcademies,
   getAcademyById,
   enroll,
@@ -65,5 +66,6 @@ router.post("/classes", protect, authorize("academy"), createClass);
 // Dancer Protected
 router.post("/bookings", protect, authorize("dancer"), bookClass);
 router.get("/bookings/my", protect, authorize("dancer"), getMyBookings);
+router.patch("/bookings/:bookingId", protect, authorize("dancer"), cancelBooking);
 
 module.exports = router;
